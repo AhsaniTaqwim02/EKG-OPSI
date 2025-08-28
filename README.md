@@ -1,5 +1,7 @@
 # EKG-OPSI
 
+EKG-OPSI adalah aplikasi berbasis GUI untuk analisis sinyal EKG, membantu identifikasi kondisi jantung normal maupun aritmia secara praktis dan informatif.
+
 ![GUI](images/GUI.png)
 
 ## Tabel Referensi Denyut Jantung Normal (BPM)
