@@ -1,5 +1,7 @@
 # EKG-OPSI
 
+![GUI](images/GUI.png)
+
 ## Tabel Referensi Denyut Jantung Normal (BPM)
 
 | Kelompok Usia | Jenis Kelamin | Rentang Denyut Jantung Normal (BPM) | Referensi Ilmiah / Sumber |
