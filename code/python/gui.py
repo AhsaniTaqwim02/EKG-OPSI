@@ -62,8 +62,13 @@ class EkgApp:
         plt.style.use('dark_background')
 
         # Filter settings (pindahkan ke sini sebelum _create_widgets)
-        self.filter_enabled = tk.BooleanVar(value=False)
+        self.filter_enabled = tk.BooleanVar(value=True)
         self.filtered_buffer = []  # buffer untuk hasil filter
+        self.bpm_filtered_buffer = []  # buffer BPM hasil filtered
+        self.filter_lowcut = tk.DoubleVar(value=0.5)
+        self.filter_highcut = tk.DoubleVar(value=40.0)
+        self.filter_notch = tk.DoubleVar(value=50.0)
+        self.filter_threshold = tk.IntVar(value=BPM_THRESHOLD)
 
         self._create_widgets()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -90,11 +95,13 @@ class EkgApp:
         # --- FRAME KIRI (KONTROL & METADATA) ---
         left_frame = ttk.Frame(main_frame)
         left_frame.grid(row=0, column=0, sticky="ns", padx=(0, 15))
-        left_frame.rowconfigure(2, weight=1)
+        left_frame.rowconfigure(0, weight=0)  # meta_frame
+        left_frame.rowconfigure(1, weight=1)  # notebook
+        left_frame.rowconfigure(2, weight=0)  # bpm_frame
 
         # Metadata Frame
         meta_frame = ttk.Labelframe(left_frame, text="Informasi Subjek", padding=15)
-        meta_frame.grid(row=0, column=0, sticky="ew")
+        meta_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         meta_frame.columnconfigure(1, weight=1)
         
         ttk.Label(meta_frame, text="Label ID:").grid(row=0, column=0, sticky=W, pady=5)
@@ -124,9 +131,12 @@ class EkgApp:
         self.last_subject_label = ttk.Label(meta_frame, textvariable=self.last_subject_label_var, font=("Helvetica", 8), bootstyle="secondary")
         self.last_subject_label.grid(row=4, column=0, columnspan=2, sticky=W, pady=(10,0))
 
-        # Control Frame
-        control_frame = ttk.Labelframe(left_frame, text="Kontrol Perekaman", padding=15)
-        control_frame.grid(row=1, column=0, sticky="ew", pady=20)
+        # --- NOTEBOOK UNTUK KONTROL & FILTER ---
+        notebook = ttk.Notebook(left_frame, bootstyle="primary")
+        notebook.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+
+        # Kontrol Perekaman Tab
+        control_frame = ttk.Frame(notebook, padding=10)
         control_frame.columnconfigure(0, weight=1)
 
         self.save_var = tk.BooleanVar(value=True)
@@ -153,15 +163,38 @@ class EkgApp:
         )
         self.filter_checkbox.grid(row=5, column=0, sticky="nsew", pady=5)
 
+        # Pengaturan Filter Tab
+        filter_param_frame = ttk.Frame(notebook, padding=10)
+        filter_param_frame.columnconfigure([0,1], weight=1)
+
+        ttk.Label(filter_param_frame, text="Lowcut (Hz):").grid(row=0, column=0, sticky=W)
+        ttk.Entry(filter_param_frame, textvariable=self.filter_lowcut, width=6,
+                  validate='focusout', validatecommand=self._on_filter_toggle).grid(row=0, column=1, sticky=W)
+
+        ttk.Label(filter_param_frame, text="Highcut (Hz):").grid(row=1, column=0, sticky=W)
+        ttk.Entry(filter_param_frame, textvariable=self.filter_highcut, width=6,
+                  validate='focusout', validatecommand=self._on_filter_toggle).grid(row=1, column=1, sticky=W)
+
+        ttk.Label(filter_param_frame, text="Notch (Hz):").grid(row=2, column=0, sticky=W)
+        ttk.Entry(filter_param_frame, textvariable=self.filter_notch, width=6,
+                  validate='focusout', validatecommand=self._on_filter_toggle).grid(row=2, column=1, sticky=W)
+
+        ttk.Label(filter_param_frame, text="Threshold BPM:").grid(row=3, column=0, sticky=W)
+        ttk.Entry(filter_param_frame, textvariable=self.filter_threshold, width=6,
+                  validate='focusout', validatecommand=self._on_filter_toggle).grid(row=3, column=1, sticky=W)
+
+        # Tambahkan tab ke notebook
+        notebook.add(control_frame, text="Kontrol Rekaman")
+        notebook.add(filter_param_frame, text="Pengaturan Filter")
+
         # BPM Display
         bpm_frame = ttk.Frame(left_frame)
         bpm_frame.grid(row=2, column=0, sticky="nsew")
-        bpm_frame.rowconfigure(0, weight=1)
-        bpm_frame.rowconfigure(1, weight=2)
+        bpm_frame.rowconfigure(0, weight=0)
+        bpm_frame.rowconfigure(1, weight=0)
         bpm_frame.rowconfigure(2, weight=1)
-        bpm_frame.columnconfigure(0, weight=1)
 
-        ttk.Label(bpm_frame, text="BPM", font=("Helvetica", 20), anchor="center", justify="center").grid(row=0, column=0, sticky="nsew", pady=(20,0))
+        ttk.Label(bpm_frame, text="BPM", font=("Helvetica", 20), anchor="center", justify="center").grid(row=0, column=0, sticky="ew", pady=(20,0))
         self.bpm_label_var = tk.StringVar(value="--")
         ttk.Label(
             bpm_frame,
@@ -170,17 +203,34 @@ class EkgApp:
             bootstyle="info",
             anchor="center",
             justify="center"
-        ).grid(row=1, column=0, sticky="nsew")
-        self.bpm_stats_var = tk.StringVar(value="Rata-rata: --   Maks: --   Min: --")
-        self.bpm_stats_label = ttk.Label(
+        ).grid(row=1, column=0, sticky="sew")
+
+        # Treeview untuk statistik BPM
+        self.bpm_stats_tree = ttk.Treeview(
             bpm_frame,
-            textvariable=self.bpm_stats_var,
-            font=("Helvetica", 12),
-            bootstyle="secondary",
-            anchor="center",
-            justify="center"
+            columns=("avg", "max", "min", "count"),
+            show="headings",
+            height=2,
+            bootstyle="secondary"
         )
-        self.bpm_stats_label.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        self.bpm_stats_tree.grid(row=2, column=0, sticky="ew", pady=(10, 10))
+        self.bpm_stats_tree.heading("avg", text="Rata-rata")
+        self.bpm_stats_tree.heading("max", text="Maks")
+        self.bpm_stats_tree.heading("min", text="Min")
+        self.bpm_stats_tree.heading("count", text="Jumlah")
+        self.bpm_stats_tree.insert("", "end", iid="bpm", values=("--", "--", "--", "0"))
+        self.bpm_stats_tree.insert("", "end", iid="bpm_filt", values=("--", "--", "--", "0"))
+        self.bpm_stats_tree.tag_configure("bpm", background="#222", foreground="#fff")
+        self.bpm_stats_tree.tag_configure("bpm_filt", background="#333", foreground="#fff")
+        self.bpm_stats_tree["displaycolumns"] = ("avg", "max", "min", "count")
+        self.bpm_stats_tree.column("avg", anchor="center", width=70)
+        self.bpm_stats_tree.column("max", anchor="center", width=60)
+        self.bpm_stats_tree.column("min", anchor="center", width=60)
+        self.bpm_stats_tree.column("count", anchor="center", width=60)
+
+        # Label baris
+        self.bpm_stats_tree.insert("", "end", iid="label_bpm", values=("BPM Asli", "", "", ""), tags=("bpm",))
+        self.bpm_stats_tree.insert("", "end", iid="label_bpm_filt", values=("BPM Filtered", "", "", ""), tags=("bpm_filt",))
 
         # --- FRAME KANAN (PLOT) ---
         right_frame = ttk.Frame(main_frame)
@@ -310,12 +360,10 @@ class EkgApp:
         return y
 
     def apply_filter(self, signal):
-        # Parameter filter (bisa disesuaikan)
         FS = self.sampling_rate
-        LOWCUT = 0.5
-        HIGHCUT = 40.0
-        NOTCH_FREQ = 50.0
-        # Bandpass lalu notch
+        LOWCUT = self.filter_lowcut.get()
+        HIGHCUT = self.filter_highcut.get()
+        NOTCH_FREQ = self.filter_notch.get()
         bandpassed = self.butter_bandpass_filter(signal, LOWCUT, HIGHCUT, FS)
         filtered = self.notch_filter(bandpassed, NOTCH_FREQ, FS)
         return filtered
@@ -387,12 +435,16 @@ class EkgApp:
                 y_signal_filt = self.apply_filter(y_signal_win)
             except Exception:
                 y_signal_filt = y_signal_win  # fallback jika error
-            self.filtered_buffer = list(zip(t_win, y_signal_filt, y_bpm_win))
+
+            # --- Hitung BPM filtered realtime ---
+            bpm_filtered = self._calculate_bpm_from_signal(t_win, y_signal_filt)
+            self.bpm_filtered_buffer = list(zip(t_win, y_signal_filt, bpm_filtered))
         else:
             y_signal_filt = []
-            self.filtered_buffer = []
+            bpm_filtered = []
+            self.bpm_filtered_buffer = []
         self.line_signal_filt.set_data(t_win, y_signal_filt)
-        self.line_bpm_filt.set_data(t_win, y_bpm_win)
+        self.line_bpm_filt.set_data(t_win, bpm_filtered)
         self.ax_signal_filt.set_xlim(
             t_win[0] if len(t_win) > 0 else 0,
             t_win[-1] if len(t_win) > 0 else window_sec
@@ -420,20 +472,36 @@ class EkgApp:
         self.fig.tight_layout()
 
     def _update_bpm_stats_from_buffer(self):
-        # Statistik BPM dari buffer, min tidak boleh nol, tampilkan jumlah data
+        # --- Statistik BPM asli ---
+        avg = mx = mn = count = "--"
         if self.data_buffer:
             arr = np.array(self.data_buffer)
             bpm_nonzero = arr[:, 2][arr[:, 2] > 0]
             count = len(bpm_nonzero)
             if count > 0:
-                avg = np.mean(bpm_nonzero)
-                mx = np.max(bpm_nonzero)
-                mn = np.min(bpm_nonzero)
-                self.bpm_stats_var.set(
-                    f"Rata-rata: {avg:.1f}   Maks: {mx:.0f}   Min: {mn:.0f}   Jumlah: {count}"
-                )
-                return
-        self.bpm_stats_var.set("Rata-rata: --   Maks: --   Min: --   Jumlah: 0")
+                avg = f"{np.mean(bpm_nonzero):.1f}"
+                mx = f"{np.max(bpm_nonzero):.0f}"
+                mn = f"{np.min(bpm_nonzero):.0f}"
+            else:
+                avg = mx = mn = "--"
+                count = "0"
+        self.bpm_stats_tree.item("bpm", values=(avg, mx, mn, count))
+
+        # --- Statistik BPM filtered ---
+        avg_f = mx_f = mn_f = count_f = "--"
+        if self.filter_enabled.get() and self.bpm_filtered_buffer:
+            arr_filt = np.array(self.bpm_filtered_buffer)
+            if arr_filt.shape[1] >= 3:
+                bpm_filt_nonzero = arr_filt[:, 2][arr_filt[:, 2] > 0]
+                count_f = len(bpm_filt_nonzero)
+                if count_f > 0:
+                    avg_f = f"{np.mean(bpm_filt_nonzero):.1f}"
+                    mx_f = f"{np.max(bpm_filt_nonzero):.0f}"
+                    mn_f = f"{np.min(bpm_filt_nonzero):.0f}"
+                else:
+                    avg_f = mx_f = mn_f = "--"
+                    count_f = "0"
+        self.bpm_stats_tree.item("bpm_filt", values=(avg_f, mx_f, mn_f, count_f))
 
     def start_task(self):
         if self.save_var.get():
@@ -539,10 +607,7 @@ class EkgApp:
             widget.config(state=NORMAL)
 
     def _calculate_bpm_from_signal(self, t, signal):
-        """
-        Hitung BPM dari sinyal (filtered) menggunakan threshold dan deteksi beat sederhana.
-        """
-        threshold = BPM_THRESHOLD
+        threshold = self.filter_threshold.get()
         min_interval = 0.25  # detik, minimal antar beat
         last_beat_time = None
         beat_times = []
@@ -562,7 +627,6 @@ class EkgApp:
             else:
                 bpm = 0
             bpm_list.append(bpm)
-        # Panjang bpm_list = len(signal)-1, tambahkan 0 di depan agar sama panjang
         bpm_list = [0] + bpm_list
         return bpm_list
 
@@ -588,9 +652,11 @@ class EkgApp:
 
     def on_closing(self):
         if self.is_started:
-            if messagebox.askyesno("Keluar", "Perekaman sedang berjalan. Yakin ingin keluar?"):
-                self.stop_task()
-                self.root.destroy()
+            # if messagebox.askyesno("Keluar", "Perekaman sedang berjalan. Yakin ingin keluar?"):
+            #     self.stop_task()
+            #     self.root.destroy()
+            self.stop_task()
+            self.root.destroy()
         else:
             self.root.destroy()
 
